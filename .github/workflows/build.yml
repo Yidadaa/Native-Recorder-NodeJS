@@ -21,12 +21,9 @@ jobs:
           - os: macos-13
             arch: x64
             platform: darwin
-          # Windows builds
+          # Windows builds (ia32 not supported in Node.js 20+)
           - os: windows-2022
             arch: x64
-            platform: win32
-          - os: windows-2022
-            arch: ia32
             platform: win32
 
     runs-on: ${{ matrix.os }}
@@ -45,8 +42,18 @@ jobs:
       - name: Install dependencies
         run: npm install --ignore-scripts
 
+      # Install cmake-js globally to ensure proper node-dev files
+      - name: Setup cmake-js
+        run: npm install -g cmake-js
+
       - name: Build native module
-        run: npm run build:native
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "win32" ]; then
+            npx cmake-js compile --CDCMAKE_BUILD_TYPE=Release
+          else
+            npm run build:native
+          fi
         env:
           npm_config_arch: ${{ matrix.arch }}
 
