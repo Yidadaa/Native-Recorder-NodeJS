@@ -167,6 +167,13 @@ jobs:
           for dir in artifacts/prebuild-*/; do
             cp -r "$dir"/* prebuilds/ 2>/dev/null || true
           done
+          # Rename .node files to include platform-arch
+          for platform_dir in prebuilds/*/; do
+            platform=$(basename "$platform_dir")
+            if [ -f "${platform_dir}NativeAudioSDK.node" ]; then
+              mv "${platform_dir}NativeAudioSDK.node" "prebuilds/NativeAudioSDK-${platform}.node"
+            fi
+          done
           echo "Prebuilds structure:"
           find prebuilds -type f
 
@@ -180,5 +187,5 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            prebuilds/**/*.node
+            prebuilds/*.node
           generate_release_notes: true
