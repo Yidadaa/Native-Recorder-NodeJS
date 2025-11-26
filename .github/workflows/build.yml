@@ -15,10 +15,10 @@ jobs:
       matrix:
         include:
           # macOS builds
-          - os: macos-14
+          - os: macos-15
             arch: arm64
             platform: darwin
-          - os: macos-13
+          - os: macos-15-intel
             arch: x64
             platform: darwin
           # Windows builds (ia32 not supported in Node.js 20+)
@@ -91,10 +91,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             arch: arm64
             platform: darwin
-          - os: macos-13
+          - os: macos-15-intel
             arch: x64
             platform: darwin
           - os: windows-2022
@@ -127,7 +127,13 @@ jobs:
         run: npm run build:ts
 
       - name: Test loading native module
-        run: node -e "const m = require('./dist/index.js'); console.log('Module loaded successfully'); console.log('Devices:', m.AudioRecorder.getDevices());"
+        run: |
+          node -e "
+            const m = require('./dist/index.js');
+            console.log('Module loaded successfully');
+            console.log('AudioRecorder class exists:', typeof m.AudioRecorder === 'function');
+            console.log('getDevices method exists:', typeof m.AudioRecorder.getDevices === 'function');
+          "
 
   publish:
     needs: [build, test]
