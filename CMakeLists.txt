@@ -29,6 +29,7 @@ if(WIN32)
     )
     add_definitions(-DNAPI_CPP_EXCEPTIONS -DWIN32_LEAN_AND_MEAN)
 elseif(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0")
     set(CMAKE_OBJCXX_FLAGS "${CMAKE_OBJCXX_FLAGS} -fobjc-arc")
     list(APPEND ENGINE_SOURCES 
         native/mac/AVFEngine.mm

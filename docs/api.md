@@ -390,7 +390,7 @@ enum class PermissionType {
 
 **Output Devices:**
 - Returns single virtual device with `id: "system"`, `name: "System Audio"`
-- Uses ScreenCaptureKit (requires macOS 12.3+)
+- Uses ScreenCaptureKit (requires macOS 13.0+)
 - Captures all system audio output mixed together
 - Requires screen recording permission
 

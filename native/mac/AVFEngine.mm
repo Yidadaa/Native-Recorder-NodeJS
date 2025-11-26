@@ -77,10 +77,10 @@ void AVFEngine::Start(const std::string &deviceType, const std::string &deviceId
             return;
         }
         
-        if (@available(macOS 12.3, *)) {
+        if (@available(macOS 13.0, *)) {
             [impl->sckCapture startWithCallback:dataCb errorCallback:errorCb];
         } else {
-            if (errorCb) errorCb("System audio recording requires macOS 12.3 or later.");
+            if (errorCb) errorCb("System audio recording requires macOS 13.0 or later.");
         }
         return;
     }
@@ -166,7 +166,7 @@ std::vector<AudioDevice> AVFEngine::GetDevices() {
     }
 
     // Add system audio output device (only one on macOS)
-    if (@available(macOS 12.3, *)) {
+    if (@available(macOS 13.0, *)) {
         AudioDevice systemDevice;
         systemDevice.id = AudioEngine::SYSTEM_AUDIO_DEVICE_ID;
         systemDevice.name = "System Audio";
@@ -217,7 +217,7 @@ PermissionStatus AVFEngine::CheckPermission() {
     // Check screen capture permission (for system audio)
     // ScreenCaptureKit doesn't have a direct permission check API,
     // but we can check if we can get shareable content
-    if (@available(macOS 12.3, *)) {
+    if (@available(macOS 13.0, *)) {
         __block BOOL hasScreenPermission = NO;
         dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
         
@@ -255,7 +255,7 @@ bool AVFEngine::RequestPermission(PermissionType type) {
     } 
     else if (type == PermissionType::System) {
         // Request screen capture permission for system audio
-        if (@available(macOS 12.3, *)) {
+        if (@available(macOS 13.0, *)) {
             // Attempting to get shareable content will trigger the permission prompt
             // if not already granted
             [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent * _Nullable shareableContent, NSError * _Nullable error) {

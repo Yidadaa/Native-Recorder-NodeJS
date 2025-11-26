@@ -62,7 +62,7 @@ The SDK uses a unified **input/output** device model:
 | **Output Devices**   | Multiple (WASAPI loopback per device) | Single virtual device         |
 | **Output Device ID** | Actual device GUID                    | Always `"system"`             |
 | **Permissions**      | None required                         | Screen Recording + Microphone |
-| **Min OS Version**   | Windows 7+                            | macOS 12.3+ (for output)      |
+| **Min OS Version**   | Windows 7+                            | macOS 13.0+ (for output)      |
 
 ## System Architecture
 

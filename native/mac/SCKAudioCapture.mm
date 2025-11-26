@@ -29,7 +29,7 @@
     self.dataCallback = dataCb;
     self.errorCallback = errorCb;
 
-    if (@available(macOS 12.3, *)) {
+    if (@available(macOS 13.0, *)) {
         [SCShareableContent getShareableContentExcludingDesktopWindows:YES
                                                   onScreenWindowsOnly:NO
                                                     completionHandler:^(SCShareableContent *content, NSError *error) {
@@ -76,12 +76,12 @@
             });
         }];
     } else {
-        if (self.errorCallback) self.errorCallback("ScreenCaptureKit is only available on macOS 12.3+");
+        if (self.errorCallback) self.errorCallback("ScreenCaptureKit audio capture requires macOS 13.0+");
     }
 }
 
 - (void)stop {
-    if (@available(macOS 12.3, *)) {
+    if (@available(macOS 13.0, *)) {
         if (self.stream) {
             [self.stream stopCaptureWithCompletionHandler:nil];
             self.stream = nil;
@@ -92,7 +92,7 @@
 - (void)stream:(SCStream *)stream didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer ofType:(SCStreamOutputType)type {
     if (type != SCStreamOutputTypeAudio || !self.dataCallback) return;
 
-    if (@available(macOS 12.3, *)) {
+    if (@available(macOS 13.0, *)) {
         CMFormatDescriptionRef formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer);
         const AudioStreamBasicDescription *asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc);
         
@@ -203,7 +203,7 @@
 
 // SCStreamDelegate method
 - (void)stream:(SCStream *)stream didStopWithError:(NSError *)error {
-    if (@available(macOS 12.3, *)) {
+    if (@available(macOS 13.0, *)) {
         if (error && self.errorCallback) {
             self.errorCallback("Stream stopped with error: " + std::string(error.localizedDescription.UTF8String));
         }

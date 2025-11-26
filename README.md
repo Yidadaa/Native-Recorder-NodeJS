@@ -21,8 +21,8 @@ High-performance, low-latency native audio recording SDK for Node.js. Supports b
 | ------------- | ------------ | ----------- | ----------------------- |
 | Windows 10/11 | x64          | Supported   | Supported (per-device)  |
 | Windows 10/11 | ia32         | Supported   | Supported (per-device)  |
-| macOS 12.3+   | arm64        | Supported   | Supported (system-wide) |
-| macOS 12.3+   | x64          | Supported   | Supported (system-wide) |
+| macOS 13.0+   | arm64        | Supported   | Supported (system-wide) |
+| macOS 13.0+   | x64          | Supported   | Supported (system-wide) |
 
 ### Platform Differences
 
@@ -31,7 +31,7 @@ High-performance, low-latency native audio recording SDK for Node.js. Supports b
 | Input Devices  | Multiple (WASAPI)     | Multiple (AVFoundation)        |
 | Output Devices | Multiple (per-device) | Single "System Audio" device   |
 | Permissions    | None required         | Microphone + Screen Recording  |
-| Min OS Version | Windows 10+           | macOS 12.3+ (for system audio) |
+| Min OS Version | Windows 10+           | macOS 13.0+ (for system audio) |
 
 ## Installation
 
