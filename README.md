@@ -322,10 +322,10 @@ npm publish
 
 The project uses GitHub Actions for automated builds and releases. The workflow is triggered by:
 
-| Trigger | Action |
-| ------- | ------ |
-| Push to `main` | Build and test on all platforms |
-| Pull Request to `main` | Build and test on all platforms |
+| Trigger                        | Action                                                 |
+| ------------------------------ | ------------------------------------------------------ |
+| Push to `main`                 | Build and test on all platforms                        |
+| Pull Request to `main`         | Build and test on all platforms                        |
 | Push tag `v*` (e.g., `v1.0.0`) | Build, test, publish to npm, and create GitHub Release |
 
 **To release a new version:**
