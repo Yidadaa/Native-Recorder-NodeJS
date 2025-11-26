@@ -1,0 +1,161 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS builds
+          - os: macos-14
+            arch: arm64
+            platform: darwin
+          - os: macos-13
+            arch: x64
+            platform: darwin
+          # Windows builds
+          - os: windows-2022
+            arch: x64
+            platform: win32
+          - os: windows-2022
+            arch: ia32
+            platform: win32
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.platform }}-${{ matrix.arch }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          architecture: ${{ matrix.arch }}
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Build native module
+        run: npm run build:native
+        env:
+          npm_config_arch: ${{ matrix.arch }}
+
+      - name: Create prebuild directory
+        shell: bash
+        run: |
+          mkdir -p prebuilds/${{ matrix.platform }}-${{ matrix.arch }}
+          if [ "${{ matrix.platform }}" = "win32" ]; then
+            cp build/Release/NativeAudioSDK.node prebuilds/${{ matrix.platform }}-${{ matrix.arch }}/
+          else
+            cp build/Release/NativeAudioSDK.node prebuilds/${{ matrix.platform }}-${{ matrix.arch }}/
+          fi
+
+      - name: Upload prebuild artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prebuild-${{ matrix.platform }}-${{ matrix.arch }}
+          path: prebuilds/
+          retention-days: 7
+
+  test:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            arch: arm64
+            platform: darwin
+          - os: macos-13
+            arch: x64
+            platform: darwin
+          - os: windows-2022
+            arch: x64
+            platform: win32
+
+    runs-on: ${{ matrix.os }}
+    name: Test ${{ matrix.platform }}-${{ matrix.arch }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          architecture: ${{ matrix.arch }}
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Download prebuild
+        uses: actions/download-artifact@v4
+        with:
+          name: prebuild-${{ matrix.platform }}-${{ matrix.arch }}
+          path: prebuilds/
+
+      - name: Build TypeScript
+        run: npm run build:ts
+
+      - name: Test loading native module
+        run: node -e "const m = require('./dist/index.js'); console.log('Module loaded successfully'); console.log('Devices:', m.AudioRecorder.getDevices());"
+
+  publish:
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Download all prebuilds
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Merge prebuilds
+        run: |
+          mkdir -p prebuilds
+          for dir in artifacts/prebuild-*/; do
+            cp -r "$dir"/* prebuilds/ 2>/dev/null || true
+          done
+          echo "Prebuilds structure:"
+          find prebuilds -type f
+
+      - name: Build TypeScript
+        run: npm run build:ts
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            prebuilds/**/*.node
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

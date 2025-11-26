@@ -1,0 +1,37 @@
+# Source files (TypeScript source is included for reference)
+# src/
+
+# Build artifacts (except prebuilds)
+build/
+.cache/
+
+# Test files
+test/
+
+# Development files
+.github/
+.vscode/
+.idea/
+docs/
+
+# Config files not needed at runtime
+tsconfig.json
+jest.config.js
+.eslintrc*
+.prettierrc*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Lock files
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Raw test files
+*.raw
+
+# Git
+.git/
+.gitignore

@@ -403,7 +403,7 @@ enum class PermissionType {
 ## Usage Pattern (Cross-Platform)
 
 ```typescript
-import { AudioRecorder, SYSTEM_AUDIO_DEVICE_ID } from 'native-audio-sdk';
+import { AudioRecorder, SYSTEM_AUDIO_DEVICE_ID } from 'native-recorder-nodejs';
 
 // Create recorder
 const recorder = new AudioRecorder();

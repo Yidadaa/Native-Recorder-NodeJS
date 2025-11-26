@@ -3,6 +3,9 @@ node_modules/
 dist/
 build/
 
+# Prebuilds (generated during CI)
+prebuilds/
+
 # CMake
 CMakeCache.txt
 CMakeFiles/
