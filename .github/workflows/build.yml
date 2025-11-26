@@ -167,13 +167,6 @@ jobs:
           for dir in artifacts/prebuild-*/; do
             cp -r "$dir"/* prebuilds/ 2>/dev/null || true
           done
-          # Rename .node files to include platform-arch
-          for platform_dir in prebuilds/*/; do
-            platform=$(basename "$platform_dir")
-            if [ -f "${platform_dir}NativeAudioSDK.node" ]; then
-              mv "${platform_dir}NativeAudioSDK.node" "prebuilds/NativeAudioSDK-${platform}.node"
-            fi
-          done
           echo "Prebuilds structure:"
           find prebuilds -type f
 
@@ -183,9 +176,21 @@ jobs:
       - name: Publish to npm
         run: npm publish --access public
 
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          for platform_dir in prebuilds/*/; do
+            platform=$(basename "$platform_dir")
+            if [ -f "${platform_dir}NativeAudioSDK.node" ]; then
+              cp "${platform_dir}NativeAudioSDK.node" "release-assets/NativeAudioSDK-${platform}.node"
+            fi
+          done
+          echo "Release assets:"
+          ls -la release-assets/
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            prebuilds/*.node
+            release-assets/*.node
           generate_release_notes: true
