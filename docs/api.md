@@ -40,6 +40,21 @@ export const SYSTEM_AUDIO_DEVICE_ID = 'system';
 export type DeviceType = 'input' | 'output';
 
 /**
+ * Permission type for requesting access
+ */
+export type PermissionType = 'mic' | 'system';
+
+/**
+ * Permission status for audio recording
+ */
+export interface PermissionStatus {
+  /** Microphone permission granted */
+  mic: boolean;
+  /** System audio permission granted (screen recording permission on macOS) */
+  system: boolean;
+}
+
+/**
  * Represents an audio device
  */
 export interface AudioDevice {
@@ -192,6 +207,43 @@ console.log(`${format.sampleRate}Hz, ${format.channels}ch, ${format.bitDepth}bit
 - **deviceId**: The device ID to query
 - **Returns**: `AudioFormat` object
 
+##### `checkPermission(): PermissionStatus`
+Checks the current permission status for audio recording.
+
+```typescript
+const status = AudioRecorder.checkPermission();
+console.log(`Microphone: ${status.mic}, System Audio: ${status.system}`);
+
+// Example output on macOS (before granting permissions):
+// Microphone: false, System Audio: false
+
+// Example output on Windows (always granted):
+// Microphone: true, System Audio: true
+```
+
+- **Returns**: `PermissionStatus` object with `mic` and `system` boolean fields
+- **Note**: On Windows, always returns `{ mic: true, system: true }` as no explicit permissions are required
+
+##### `requestPermission(type: PermissionType): boolean`
+Requests permission for the specified type.
+
+```typescript
+// Request microphone permission
+const micGranted = AudioRecorder.requestPermission('mic');
+
+// Request system audio permission (screen recording on macOS)
+const systemGranted = AudioRecorder.requestPermission('system');
+
+if (micGranted && systemGranted) {
+  // All permissions granted, can start recording
+}
+```
+
+- **type**: The permission type to request: `'mic'` for microphone, `'system'` for system audio
+- **Returns**: `true` if permission was granted, `false` otherwise
+- **Note**: On Windows, always returns `true` as no explicit permissions are required
+- **Note**: On macOS, this will prompt the user to grant the requested permission if not already granted
+
 #### Events
 
 ##### `'data'`
@@ -232,6 +284,8 @@ static constexpr const char* SYSTEM_AUDIO_DEVICE_ID = "system";
 | `stop()`                    | Stop recording                                       |
 | `getDevices()`              | Static. Returns array of all audio devices           |
 | `getDeviceFormat(deviceId)` | Static. Returns format info for a device             |
+| `checkPermission()`         | Static. Returns current permission status            |
+| `requestPermission(type)`   | Static. Requests permission for mic or system audio  |
 
 ### Native C++ Interfaces
 
@@ -281,8 +335,32 @@ public:
   // Get format for specific device
   virtual AudioFormat GetDeviceFormat(const std::string& deviceId) = 0;
   
+  // Check permission status for mic and system audio
+  // On Windows, always returns {true, true}
+  virtual PermissionStatus CheckPermission() = 0;
+  
+  // Request permission for specified type
+  // On Windows, always returns true
+  virtual bool RequestPermission(PermissionType type) = 0;
+  
   // Special device ID for system-wide audio capture (macOS)
   static constexpr const char* SYSTEM_AUDIO_DEVICE_ID = "system";
+};
+```
+
+#### `PermissionStatus` Structure
+```cpp
+struct PermissionStatus {
+  bool mic;     // Microphone permission granted
+  bool system;  // System audio permission granted
+};
+```
+
+#### `PermissionType` Enum
+```cpp
+enum class PermissionType {
+  Mic,    // Microphone permission
+  System  // System audio (screen recording) permission
 };
 ```
 
@@ -316,6 +394,10 @@ public:
 - Captures all system audio output mixed together
 - Requires screen recording permission
 
+**Permissions:**
+- Microphone: Uses `AVCaptureDevice.requestAccessForMediaType`
+- System Audio: Uses `SCShareableContent.getShareableContentWithCompletionHandler` to trigger screen recording permission
+
 ---
 
 ## Usage Pattern (Cross-Platform)
@@ -325,6 +407,21 @@ import { AudioRecorder, SYSTEM_AUDIO_DEVICE_ID } from 'native-audio-sdk';
 
 // Create recorder
 const recorder = new AudioRecorder();
+
+// Check and request permissions (important on macOS)
+const permissions = AudioRecorder.checkPermission();
+if (!permissions.mic) {
+  const granted = AudioRecorder.requestPermission('mic');
+  if (!granted) {
+    console.error('Microphone permission denied');
+  }
+}
+if (!permissions.system) {
+  const granted = AudioRecorder.requestPermission('system');
+  if (!granted) {
+    console.error('System audio permission denied');
+  }
+}
 
 // Get devices
 const inputs = AudioRecorder.getDevices('input');

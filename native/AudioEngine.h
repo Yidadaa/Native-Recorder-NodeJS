@@ -19,6 +19,15 @@ struct AudioFormat {
   int rawBitDepth; // Native device bit depth
 };
 
+// Permission status for audio recording
+struct PermissionStatus {
+  bool mic;    // Microphone permission granted
+  bool system; // System audio permission granted
+};
+
+// Permission type for requesting
+enum class PermissionType { Mic, System };
+
 class AudioEngine {
 public:
   virtual ~AudioEngine() = default;
@@ -29,6 +38,10 @@ public:
 
   // Special device ID for system-wide audio capture (macOS)
   static constexpr const char *SYSTEM_AUDIO_DEVICE_ID = "system";
+
+  // Permission type constants for JS
+  static constexpr const char *PERMISSION_MIC = "mic";
+  static constexpr const char *PERMISSION_SYSTEM = "system";
 
   // Callback for receiving raw PCM data (16-bit, Native Sample Rate,
   // Stereo/Mono)
@@ -50,4 +63,13 @@ public:
 
   // Get format for specific device
   virtual AudioFormat GetDeviceFormat(const std::string &deviceId) = 0;
+
+  // Check permission status for mic and system audio
+  // Returns current permission status without prompting user
+  virtual PermissionStatus CheckPermission() = 0;
+
+  // Request permission for specified type
+  // Returns true if permission was granted, false otherwise
+  // On Windows, always returns true (no permission needed)
+  virtual bool RequestPermission(PermissionType type) = 0;
 };

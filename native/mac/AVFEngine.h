@@ -14,6 +14,10 @@ public:
   std::vector<AudioDevice> GetDevices() override;
   AudioFormat GetDeviceFormat(const std::string &deviceId) override;
 
+  // Permission handling
+  PermissionStatus CheckPermission() override;
+  bool RequestPermission(PermissionType type) override;
+
 private:
   struct Impl;
   std::unique_ptr<Impl> impl;

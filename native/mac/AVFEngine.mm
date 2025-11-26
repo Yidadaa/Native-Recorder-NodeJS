@@ -2,6 +2,7 @@
 #import "SCKAudioCapture.h"
 #import <AVFoundation/AVFoundation.h>
 #import <CoreMedia/CoreMedia.h>
+#import <ScreenCaptureKit/ScreenCaptureKit.h>
 
 @interface AVFRecorderDelegate : NSObject <AVCaptureAudioDataOutputSampleBufferDelegate>
 @property (nonatomic, assign) AudioEngine::DataCallback dataCallback;
@@ -115,10 +116,11 @@ void AVFEngine::Start(const std::string &deviceType, const std::string &deviceId
 
     AVCaptureAudioDataOutput *output = [[AVCaptureAudioDataOutput alloc] init];
     
-    // Configure output settings for 48kHz 16-bit PCM
+    // Configure output settings for 48kHz 16-bit stereo PCM
     NSDictionary *settings = @{
         AVFormatIDKey: @(kAudioFormatLinearPCM),
         AVSampleRateKey: @48000.0,
+        AVNumberOfChannelsKey: @2,
         AVLinearPCMBitDepthKey: @16,
         AVLinearPCMIsFloatKey: @NO,
         AVLinearPCMIsBigEndianKey: @NO,
@@ -197,10 +199,76 @@ AudioFormat AVFEngine::GetDeviceFormat(const std::string &deviceId) {
 
     if (asbd) {
         format.sampleRate = 48000; // Fixed output sample rate
-        format.channels = (int)asbd->mChannelsPerFrame;
+        format.channels = 2; // Fixed output channels (we force stereo in output settings)
         format.rawBitDepth = (int)asbd->mBitsPerChannel;
         format.bitDepth = 16; // We always output 16-bit
     }
 
     return format;
+}
+
+PermissionStatus AVFEngine::CheckPermission() {
+    PermissionStatus status;
+    
+    // Check microphone permission
+    AVAuthorizationStatus micStatus = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio];
+    status.mic = (micStatus == AVAuthorizationStatusAuthorized);
+    
+    // Check screen capture permission (for system audio)
+    // ScreenCaptureKit doesn't have a direct permission check API,
+    // but we can check if we can get shareable content
+    if (@available(macOS 12.3, *)) {
+        __block BOOL hasScreenPermission = NO;
+        dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+        
+        [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent * _Nullable shareableContent, NSError * _Nullable error) {
+            // If we can get shareable content without error, we have permission
+            // If error is nil and we get valid content, permission is granted
+            hasScreenPermission = (error == nil && shareableContent != nil);
+            dispatch_semaphore_signal(semaphore);
+        }];
+        
+        // Wait for async call with timeout
+        dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC));
+        status.system = hasScreenPermission;
+    } else {
+        // System audio not supported on older macOS
+        status.system = NO;
+    }
+    
+    return status;
+}
+
+bool AVFEngine::RequestPermission(PermissionType type) {
+    __block BOOL granted = NO;
+    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+    
+    if (type == PermissionType::Mic) {
+        // Request microphone permission
+        [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL allowed) {
+            granted = allowed;
+            dispatch_semaphore_signal(semaphore);
+        }];
+        
+        dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC));
+        return granted;
+    } 
+    else if (type == PermissionType::System) {
+        // Request screen capture permission for system audio
+        if (@available(macOS 12.3, *)) {
+            // Attempting to get shareable content will trigger the permission prompt
+            // if not already granted
+            [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent * _Nullable shareableContent, NSError * _Nullable error) {
+                granted = (error == nil && shareableContent != nil);
+                dispatch_semaphore_signal(semaphore);
+            }];
+            
+            dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC));
+            return granted;
+        } else {
+            return false;
+        }
+    }
+    
+    return false;
 }

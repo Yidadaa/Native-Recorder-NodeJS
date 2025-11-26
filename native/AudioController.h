@@ -18,6 +18,8 @@ private:
   Napi::Value Stop(const Napi::CallbackInfo &info);
   static Napi::Value GetDevices(const Napi::CallbackInfo &info);
   static Napi::Value GetDeviceFormat(const Napi::CallbackInfo &info);
+  static Napi::Value CheckPermission(const Napi::CallbackInfo &info);
+  static Napi::Value RequestPermission(const Napi::CallbackInfo &info);
 
   std::unique_ptr<AudioEngine> engine;
   std::shared_ptr<Napi::ThreadSafeFunction> tsfn;

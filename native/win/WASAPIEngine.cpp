@@ -432,4 +432,18 @@ void WASAPIEngine::RecordingThread() {
   CoUninitialize();
 }
 
+PermissionStatus WASAPIEngine::CheckPermission() {
+  // Windows doesn't require explicit permissions for audio recording
+  PermissionStatus status;
+  status.mic = true;
+  status.system = true;
+  return status;
+}
+
+bool WASAPIEngine::RequestPermission(PermissionType type) {
+  // Windows doesn't require explicit permissions for audio recording
+  // Always return true
+  return true;
+}
+
 #endif

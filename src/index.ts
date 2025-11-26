@@ -12,6 +12,21 @@ export const SYSTEM_AUDIO_DEVICE_ID = "system";
 export type DeviceType = "input" | "output";
 
 /**
+ * Permission type for requesting access
+ */
+export type PermissionType = "mic" | "system";
+
+/**
+ * Permission status for audio recording
+ */
+export interface PermissionStatus {
+  /** Microphone permission granted */
+  mic: boolean;
+  /** System audio permission granted (screen recording permission on macOS) */
+  system: boolean;
+}
+
+/**
  * Represents an audio device
  */
 export interface AudioDevice {
@@ -73,6 +88,8 @@ interface NativeModule {
     new (): NativeAudioController;
     getDevices(): AudioDevice[];
     getDeviceFormat(deviceId: string): AudioFormat;
+    checkPermission(): PermissionStatus;
+    requestPermission(type: PermissionType): boolean;
   };
 }
 
@@ -161,6 +178,27 @@ export class AudioRecorder extends EventEmitter {
    */
   static getDeviceFormat(deviceId: string): AudioFormat {
     return native.AudioController.getDeviceFormat(deviceId);
+  }
+
+  /**
+   * Checks the current permission status for audio recording.
+   * On Windows, always returns { mic: true, system: true } as no explicit permissions are required.
+   * On macOS, checks actual permission status for microphone and screen recording.
+   * @returns PermissionStatus object with mic and system boolean fields
+   */
+  static checkPermission(): PermissionStatus {
+    return native.AudioController.checkPermission();
+  }
+
+  /**
+   * Requests permission for the specified type.
+   * On Windows, always returns true as no explicit permissions are required.
+   * On macOS, prompts the user to grant the requested permission.
+   * @param type The permission type to request: 'mic' for microphone, 'system' for system audio
+   * @returns true if permission was granted, false otherwise
+   */
+  static requestPermission(type: PermissionType): boolean {
+    return native.AudioController.requestPermission(type);
   }
 }
 

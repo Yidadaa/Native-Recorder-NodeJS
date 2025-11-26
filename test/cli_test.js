@@ -29,10 +29,13 @@ async function main() {
       console.log("5. Record from Selected Microphone");
       console.log("6. Record System Audio");
       console.log("7. Get Device Format");
-      console.log("8. Exit");
+      console.log("8. Check Permissions");
+      console.log("9. Request Microphone Permission");
+      console.log("10. Request System Audio Permission");
+      console.log("0. Exit");
       console.log("----------------------------------------");
 
-      const answer = await new Promise(resolve => rl.question("Select an option (1-8): ", resolve));
+      const answer = await new Promise(resolve => rl.question("Select an option (0-10): ", resolve));
 
       switch (answer.trim()) {
         case '1':
@@ -130,6 +133,33 @@ async function main() {
           }
           break;
         case '8':
+          {
+            console.log("\nChecking permissions...");
+            const status = AudioRecorder.checkPermission();
+            console.log("\nPermission Status:");
+            console.log(`  Microphone: ${status.mic ? '✅ Granted' : '❌ Not Granted'}`);
+            console.log(`  System Audio: ${status.system ? '✅ Granted' : '❌ Not Granted'}`);
+            if (process.platform === 'win32') {
+              console.log("\n(Note: Windows does not require explicit permissions)");
+            }
+          }
+          break;
+        case '9':
+          {
+            console.log("\nRequesting microphone permission...");
+            const granted = AudioRecorder.requestPermission('mic');
+            console.log(`\nMicrophone permission: ${granted ? '✅ Granted' : '❌ Denied'}`);
+          }
+          break;
+        case '10':
+          {
+            console.log("\nRequesting system audio permission...");
+            console.log("(On macOS, this will prompt for Screen Recording permission)");
+            const granted = AudioRecorder.requestPermission('system');
+            console.log(`\nSystem audio permission: ${granted ? '✅ Granted' : '❌ Denied'}`);
+          }
+          break;
+        case '0':
           rl.close();
           return;
         default:
@@ -193,7 +223,10 @@ async function recordAudio(deviceType, deviceId, deviceName) {
     console.log(`\n\nStopped. Total bytes: ${totalBytes}`);
     console.log(`Note: The output file contains raw PCM 16-bit LE audio.`);
     console.log(`Format: ${format.sampleRate} Hz, ${format.channels} Channels`);
-    console.log(`Use 'ffplay -f s16le -ar ${format.sampleRate} -ac ${format.channels} ${filename}' to play.`);
+    // Use full path and proper escaping for cross-platform compatibility
+    const escapedPath = filePath.includes(' ') ? `"${filePath}"` : filePath;
+    console.log(`Use the following command to play:`);
+    console.log(`  ffplay -f s16le -ar ${format.sampleRate} -ch_layout ${format.channels === 1 ? 'mono' : 'stereo'} ${escapedPath}`);
   } catch (e) {
     console.error("\nFailed:", e);
   } finally {

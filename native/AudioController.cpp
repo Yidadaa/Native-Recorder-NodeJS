@@ -13,7 +13,9 @@ Napi::Object AudioController::Init(Napi::Env env, Napi::Object exports) {
       {InstanceMethod("start", &AudioController::Start),
        InstanceMethod("stop", &AudioController::Stop),
        StaticMethod("getDevices", &AudioController::GetDevices),
-       StaticMethod("getDeviceFormat", &AudioController::GetDeviceFormat)});
+       StaticMethod("getDeviceFormat", &AudioController::GetDeviceFormat),
+       StaticMethod("checkPermission", &AudioController::CheckPermission),
+       StaticMethod("requestPermission", &AudioController::RequestPermission)});
 
   constructor = Napi::Persistent(func);
   constructor.SuppressDestruct();
@@ -185,4 +187,47 @@ Napi::Value AudioController::GetDeviceFormat(const Napi::CallbackInfo &info) {
   result.Set("rawBitDepth", format.rawBitDepth);
 
   return result;
+}
+
+Napi::Value AudioController::CheckPermission(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+
+  auto tempEngine = CreatePlatformAudioEngine();
+  PermissionStatus status = tempEngine->CheckPermission();
+
+  Napi::Object result = Napi::Object::New(env);
+  result.Set("mic", status.mic);
+  result.Set("system", status.system);
+
+  return result;
+}
+
+Napi::Value AudioController::RequestPermission(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+
+  if (info.Length() < 1 || !info[0].IsString()) {
+    Napi::TypeError::New(env,
+                         "Expected permission type string ('mic' or 'system')")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::string typeStr = info[0].As<Napi::String>().Utf8Value();
+  PermissionType type;
+
+  if (typeStr == AudioEngine::PERMISSION_MIC) {
+    type = PermissionType::Mic;
+  } else if (typeStr == AudioEngine::PERMISSION_SYSTEM) {
+    type = PermissionType::System;
+  } else {
+    Napi::TypeError::New(env,
+                         "Invalid permission type. Must be 'mic' or 'system'")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  auto tempEngine = CreatePlatformAudioEngine();
+  bool granted = tempEngine->RequestPermission(type);
+
+  return Napi::Boolean::New(env, granted);
 }

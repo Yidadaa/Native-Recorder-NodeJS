@@ -1,15 +1,12 @@
 #import "SCKAudioCapture.h"
 #import <CoreMedia/CoreMedia.h>
-#import <AudioToolbox/AudioToolbox.h>
+#include <vector>
 
-@interface SCKAudioCapture () <SCStreamOutput>
+@interface SCKAudioCapture () <SCStreamOutput, SCStreamDelegate>
 @property (nonatomic, strong) SCStream *stream;
 @property (nonatomic, assign) SCKDataCallback dataCallback;
 @property (nonatomic, assign) SCKErrorCallback errorCallback;
-@property (nonatomic, assign) AudioConverterRef audioConverter;
-@property (nonatomic, assign) AudioStreamBasicDescription inputFormat;
-@property (nonatomic, assign) AudioStreamBasicDescription outputFormat;
-@property (nonatomic, assign) BOOL isConverterSetup;
+@property (nonatomic, strong) dispatch_queue_t captureQueue;
 @end
 
 @implementation SCKAudioCapture
@@ -17,18 +14,15 @@
 - (instancetype)init {
     self = [super init];
     if (self) {
-        _isConverterSetup = NO;
-        _audioConverter = NULL;
+        // Create a dedicated serial queue for audio capture callbacks
+        // This is crucial because Node.js doesn't run the Cocoa main run loop
+        _captureQueue = dispatch_queue_create("com.native-recorder.sck-audio", DISPATCH_QUEUE_SERIAL);
     }
     return self;
 }
 
 - (void)dealloc {
     [self stop];
-    if (_audioConverter) {
-        AudioConverterDispose(_audioConverter);
-        _audioConverter = NULL;
-    }
 }
 
 - (void)startWithCallback:(SCKDataCallback)dataCb errorCallback:(SCKErrorCallback)errorCb {
@@ -36,40 +30,50 @@
     self.errorCallback = errorCb;
 
     if (@available(macOS 12.3, *)) {
-        [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *error) {
-            if (error) {
-                if (self.errorCallback) self.errorCallback("Failed to get shareable content: " + std::string(error.localizedDescription.UTF8String));
-                return;
-            }
-
-            SCDisplay *display = content.displays.firstObject;
-            if (!display) {
-                if (self.errorCallback) self.errorCallback("No display found");
-                return;
-            }
-
-            SCContentFilter *filter = [[SCContentFilter alloc] initWithDisplay:display excludingWindows:@[]];
-            
-            SCStreamConfiguration *config = [[SCStreamConfiguration alloc] init];
-            config.capturesAudio = YES;
-            config.sampleRate = 48000;
-            config.channelCount = 2;
-            config.excludesCurrentProcessAudio = NO;
-
-            self.stream = [[SCStream alloc] initWithFilter:filter configuration:config delegate:nil];
-            
-            NSError *addError = nil;
-            [self.stream addStreamOutput:self type:SCStreamOutputTypeAudio sampleHandlerQueue:dispatch_get_main_queue() error:&addError];
-            if (addError) {
-                 if (self.errorCallback) self.errorCallback("Failed to add stream output: " + std::string(addError.localizedDescription.UTF8String));
-                 return;
-            }
-
-            [self.stream startCaptureWithCompletionHandler:^(NSError *error) {
+        [SCShareableContent getShareableContentExcludingDesktopWindows:YES
+                                                  onScreenWindowsOnly:NO
+                                                    completionHandler:^(SCShareableContent *content, NSError *error) {
+            dispatch_async(self.captureQueue, ^{
                 if (error) {
-                    if (self.errorCallback) self.errorCallback("Failed to start capture: " + std::string(error.localizedDescription.UTF8String));
+                    if (self.errorCallback) self.errorCallback("Failed to get shareable content: " + std::string(error.localizedDescription.UTF8String));
+                    return;
                 }
-            }];
+
+                SCDisplay *display = content.displays.firstObject;
+                if (!display) {
+                    if (self.errorCallback) self.errorCallback("No display found");
+                    return;
+                }
+
+                SCContentFilter *filter = [[SCContentFilter alloc] initWithDisplay:display excludingWindows:@[]];
+                
+                SCStreamConfiguration *config = [[SCStreamConfiguration alloc] init];
+                config.capturesAudio = YES;
+                config.sampleRate = 48000;
+                config.channelCount = 2;
+                config.excludesCurrentProcessAudio = NO;
+                
+                // Minimize video overhead since we only need audio
+                config.width = 2;
+                config.height = 2;
+                config.minimumFrameInterval = CMTimeMake(1, 1); // 1 fps for video
+                config.showsCursor = NO;
+
+                self.stream = [[SCStream alloc] initWithFilter:filter configuration:config delegate:self];
+                
+                NSError *addError = nil;
+                [self.stream addStreamOutput:self type:SCStreamOutputTypeAudio sampleHandlerQueue:self.captureQueue error:&addError];
+                if (addError) {
+                    if (self.errorCallback) self.errorCallback("Failed to add stream output: " + std::string(addError.localizedDescription.UTF8String));
+                    return;
+                }
+
+                [self.stream startCaptureWithCompletionHandler:^(NSError *startError) {
+                    if (startError) {
+                        if (self.errorCallback) self.errorCallback("Failed to start capture: " + std::string(startError.localizedDescription.UTF8String));
+                    }
+                }];
+            });
         }];
     } else {
         if (self.errorCallback) self.errorCallback("ScreenCaptureKit is only available on macOS 12.3+");
@@ -83,11 +87,6 @@
             self.stream = nil;
         }
     }
-    if (_audioConverter) {
-        AudioConverterDispose(_audioConverter);
-        _audioConverter = NULL;
-    }
-    _isConverterSetup = NO;
 }
 
 - (void)stream:(SCStream *)stream didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer ofType:(SCStreamOutputType)type {
@@ -99,104 +98,114 @@
         
         if (!asbd) return;
 
-        if (!self.isConverterSetup) {
-            self.inputFormat = *asbd;
+        // Check if audio is non-interleaved (planar)
+        bool isNonInterleaved = (asbd->mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0;
+        bool isFloat = (asbd->mFormatFlags & kAudioFormatFlagIsFloat) != 0;
+        int channels = asbd->mChannelsPerFrame;
+
+        if (isNonInterleaved) {
+            // Non-interleaved audio: each channel is in a separate buffer
+            // We need to use CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer
+            CMBlockBufferRef blockBuffer = NULL;
             
-            // Target format: 48kHz, 16-bit, Stereo, LPCM
-            AudioStreamBasicDescription outFormat = {0};
-            outFormat.mSampleRate = 48000.0;
-            outFormat.mFormatID = kAudioFormatLinearPCM;
-            outFormat.mFormatFlags = kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked;
-            outFormat.mBytesPerPacket = 4;
-            outFormat.mFramesPerPacket = 1;
-            outFormat.mBytesPerFrame = 4;
-            outFormat.mChannelsPerFrame = 2;
-            outFormat.mBitsPerChannel = 16;
-            self.outputFormat = outFormat;
+            // First, get the required buffer list size
+            size_t bufferListSizeNeeded = 0;
+            OSStatus status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+                sampleBuffer,
+                &bufferListSizeNeeded,
+                NULL,
+                0,
+                NULL,
+                NULL,
+                0,
+                &blockBuffer
+            );
             
-            AudioStreamBasicDescription inFormat = self.inputFormat;
-            OSStatus status = AudioConverterNew(&inFormat, &outFormat, &_audioConverter);
-            if (status != noErr) {
-                if (self.errorCallback) self.errorCallback("Failed to create AudioConverter");
+            if (bufferListSizeNeeded == 0) {
+                // Fallback: estimate size based on channel count
+                bufferListSizeNeeded = sizeof(AudioBufferList) + (channels - 1) * sizeof(AudioBuffer);
+            }
+            
+            AudioBufferList *audioBufferList = (AudioBufferList *)malloc(bufferListSizeNeeded);
+            status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+                sampleBuffer,
+                NULL,
+                audioBufferList,
+                bufferListSizeNeeded,
+                NULL,
+                NULL,
+                kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
+                &blockBuffer
+            );
+            
+            if (status != noErr || !audioBufferList) {
+                if (audioBufferList) free(audioBufferList);
+                if (blockBuffer) CFRelease(blockBuffer);
                 return;
             }
-            self.isConverterSetup = YES;
-        }
-
-        // Convert audio
-        CMBlockBufferRef blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer);
-        if (!blockBuffer) return;
-
-        size_t lengthAtOffset, totalLength;
-        char *dataPointer;
-        OSStatus status = CMBlockBufferGetDataPointer(blockBuffer, 0, &lengthAtOffset, &totalLength, &dataPointer);
-        
-        if (status != kCMBlockBufferNoErr) return;
-
-        // Calculate number of frames in input
-        UInt32 numFrames = (UInt32)CMSampleBufferGetNumSamples(sampleBuffer);
-        
-        // Allocate buffer for output
-        // 48kHz * 2 channels * 2 bytes = 192000 bytes/sec
-        // Buffer size depends on input duration.
-        // Safe estimate: input size * ratio of bytes per frame?
-        // Or just allocate enough.
-        
-        UInt32 outputBufferSize = numFrames * self.outputFormat.mBytesPerFrame; 
-        // Note: Sample rate conversion might change frame count.
-        // If input is 48k and output is 48k, frames are same.
-        // If input is 44.1k, output frames = input frames * 48000 / 44100.
-        
-        if (self.inputFormat.mSampleRate != self.outputFormat.mSampleRate) {
-             outputBufferSize = (UInt32)(numFrames * (self.outputFormat.mSampleRate / self.inputFormat.mSampleRate) * self.outputFormat.mBytesPerFrame * 1.2); // 1.2 safety factor
-        }
-
-        std::vector<uint8_t> outputBuffer(outputBufferSize);
-        
-        AudioBufferList outBufferList;
-        outBufferList.mNumberBuffers = 1;
-        outBufferList.mBuffers[0].mNumberChannels = self.outputFormat.mChannelsPerFrame;
-        outBufferList.mBuffers[0].mDataByteSize = outputBufferSize;
-        outBufferList.mBuffers[0].mData = outputBuffer.data();
-
-        UInt32 outputDataPacketSize = outputBufferSize / self.outputFormat.mBytesPerPacket;
-
-        // We need a complex input callback for AudioConverterFillComplexBuffer
-        // But since we have the data in a buffer, we can use a simpler approach if we had AudioConverterConvertComplexBuffer
-        // But that is deprecated or not available for all conversions.
-        // Let's use AudioConverterFillComplexBuffer with a simple callback.
-        
-        struct AudioConverterContext {
-            const void *sourceData;
-            UInt32 sourceSize;
-            UInt32 sourcePacketSize;
-            BOOL used;
-        } context = { dataPointer, (UInt32)totalLength, self.inputFormat.mBytesPerPacket, NO };
-
-        status = AudioConverterFillComplexBuffer(self.audioConverter, 
-            [](AudioConverterRef inAudioConverter, UInt32 *ioNumberDataPackets, AudioBufferList *ioData, AudioStreamPacketDescription **outDataPacketDescription, void *inUserData) -> OSStatus {
-                AudioConverterContext *ctx = (AudioConverterContext *)inUserData;
-                if (ctx->used) {
-                    *ioNumberDataPackets = 0;
-                    return noErr; // End of stream for this call
+            
+            // Get the number of frames
+            CMItemCount numFrames = CMSampleBufferGetNumSamples(sampleBuffer);
+            
+            if (isFloat && asbd->mBitsPerChannel == 32) {
+                // Interleave channels and convert float to int16
+                std::vector<int16_t> outputBuffer(numFrames * channels);
+                
+                for (CMItemCount frame = 0; frame < numFrames; frame++) {
+                    for (int ch = 0; ch < channels && ch < (int)audioBufferList->mNumberBuffers; ch++) {
+                        const float *channelData = (const float *)audioBufferList->mBuffers[ch].mData;
+                        float sample = channelData[frame];
+                        // Clamp to [-1.0, 1.0]
+                        if (sample > 1.0f) sample = 1.0f;
+                        if (sample < -1.0f) sample = -1.0f;
+                        // Convert to 16-bit and interleave
+                        outputBuffer[frame * channels + ch] = (int16_t)(sample * 32767.0f);
+                    }
                 }
                 
-                ioData->mNumberBuffers = 1;
-                ioData->mBuffers[0].mData = (void *)ctx->sourceData;
-                ioData->mBuffers[0].mDataByteSize = ctx->sourceSize;
-                // ioData->mBuffers[0].mNumberChannels = ...; // Not strictly needed for input
-                
-                *ioNumberDataPackets = ctx->sourceSize / ctx->sourcePacketSize;
-                ctx->used = YES;
-                return noErr;
-            }, 
-            &context, 
-            &outputDataPacketSize, 
-            &outBufferList, 
-            NULL);
+                self.dataCallback((const uint8_t*)outputBuffer.data(), outputBuffer.size() * sizeof(int16_t));
+            }
+            
+            free(audioBufferList);
+            if (blockBuffer) CFRelease(blockBuffer);
+        } else {
+            // Interleaved audio: original code path
+            CMBlockBufferRef blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer);
+            if (!blockBuffer) return;
 
-        if (status == noErr || status == 1) { // 1 can happen if not enough data?
-             self.dataCallback((const uint8_t*)outBufferList.mBuffers[0].mData, outBufferList.mBuffers[0].mDataByteSize);
+            size_t totalLength = 0;
+            char *dataPointer = NULL;
+            OSStatus status = CMBlockBufferGetDataPointer(blockBuffer, 0, NULL, &totalLength, &dataPointer);
+            
+            if (status != kCMBlockBufferNoErr || !dataPointer) return;
+
+            // ScreenCaptureKit outputs 32-bit float audio
+            // Convert to 16-bit signed integer PCM for consistency with other sources
+            if (isFloat && asbd->mBitsPerChannel == 32) {
+                size_t numSamples = totalLength / sizeof(float);
+                std::vector<int16_t> outputBuffer(numSamples);
+                
+                const float *floatData = (const float *)dataPointer;
+                for (size_t i = 0; i < numSamples; i++) {
+                    float sample = floatData[i];
+                    // Clamp to [-1.0, 1.0]
+                    if (sample > 1.0f) sample = 1.0f;
+                    if (sample < -1.0f) sample = -1.0f;
+                    // Convert to 16-bit
+                    outputBuffer[i] = (int16_t)(sample * 32767.0f);
+                }
+                
+                self.dataCallback((const uint8_t*)outputBuffer.data(), numSamples * sizeof(int16_t));
+            }
+        }
+    }
+}
+
+// SCStreamDelegate method
+- (void)stream:(SCStream *)stream didStopWithError:(NSError *)error {
+    if (@available(macOS 12.3, *)) {
+        if (error && self.errorCallback) {
+            self.errorCallback("Stream stopped with error: " + std::string(error.localizedDescription.UTF8String));
         }
     }
 }

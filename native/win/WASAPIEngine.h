@@ -23,6 +23,10 @@ public:
   std::vector<AudioDevice> GetDevices() override;
   AudioFormat GetDeviceFormat(const std::string &deviceId) override;
 
+  // Permission handling (Windows doesn't require explicit permissions)
+  PermissionStatus CheckPermission() override;
+  bool RequestPermission(PermissionType type) override;
+
 private:
   void RecordingThread();
   std::string GetDeviceName(IMMDevice *device);
