@@ -1,18 +1,21 @@
 #include "../../native/AudioEngine.h"
-#include "../../native/win/WASAPIEngine.h"
+#ifdef __APPLE__
+#include "../../native/mac/AVFEngine.h"
+#endif
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <iostream>
 #include <thread>
 
-#ifdef _WIN32
-TEST_CASE("WASAPIEngine Creation", "[wasapi]") {
-  auto engine = std::make_unique<WASAPIEngine>();
+#ifdef __APPLE__
+
+TEST_CASE("AVFEngine Creation", "[avf]") {
+  auto engine = std::make_unique<AVFEngine>();
   REQUIRE(engine != nullptr);
 }
 
-TEST_CASE("WASAPIEngine GetDevices", "[wasapi]") {
-  auto engine = std::make_unique<WASAPIEngine>();
+TEST_CASE("AVFEngine GetDevices", "[avf]") {
+  auto engine = std::make_unique<AVFEngine>();
   auto devices = engine->GetDevices();
 
   bool hasInput = false;
@@ -34,21 +37,29 @@ TEST_CASE("WASAPIEngine GetDevices", "[wasapi]") {
       hasOutput = true;
   }
 
+  // On macOS 12.3+, we should have at least one output device (system audio)
   std::cout << "Has input devices: " << hasInput << std::endl;
   std::cout << "Has output devices: " << hasOutput << std::endl;
 
   SUCCEED("GetDevices returned without crashing");
 }
 
-TEST_CASE("WASAPIEngine GetDeviceFormat", "[wasapi]") {
-  auto engine = std::make_unique<WASAPIEngine>();
+TEST_CASE("AVFEngine GetDeviceFormat", "[avf]") {
+  auto engine = std::make_unique<AVFEngine>();
   auto devices = engine->GetDevices();
 
-  // Test with first available device
-  if (!devices.empty()) {
-    auto format = engine->GetDeviceFormat(devices[0].id);
+  // Test input device format
+  auto inputDevices = std::vector<AudioDevice>();
+  for (const auto &d : devices) {
+    if (d.type == AudioEngine::DEVICE_TYPE_INPUT)
+      inputDevices.push_back(d);
+  }
 
-    std::cout << "Device Format for " << devices[0].name << ":" << std::endl;
+  if (!inputDevices.empty()) {
+    auto format = engine->GetDeviceFormat(inputDevices[0].id);
+
+    std::cout << "Device Format for " << inputDevices[0].name << ":"
+              << std::endl;
     std::cout << "  Sample Rate: " << format.sampleRate << std::endl;
     std::cout << "  Channels: " << format.channels << std::endl;
     std::cout << "  Output Bit Depth: " << format.bitDepth << std::endl;
@@ -57,14 +68,21 @@ TEST_CASE("WASAPIEngine GetDeviceFormat", "[wasapi]") {
     REQUIRE(format.sampleRate > 0);
     REQUIRE(format.channels > 0);
     REQUIRE(format.bitDepth == 16);
-    REQUIRE(format.rawBitDepth > 0);
   } else {
-    WARN("No devices found to test GetDeviceFormat");
+    WARN("No input devices found to test GetDeviceFormat");
   }
+
+  // Test system audio format
+  auto format = engine->GetDeviceFormat(AudioEngine::SYSTEM_AUDIO_DEVICE_ID);
+  std::cout << "System Audio Format:" << std::endl;
+  std::cout << "  Sample Rate: " << format.sampleRate << std::endl;
+  std::cout << "  Channels: " << format.channels << std::endl;
+  REQUIRE(format.sampleRate == 48000);
+  REQUIRE(format.channels == 2);
 }
 
-TEST_CASE("WASAPIEngine Start/Stop Microphone", "[wasapi]") {
-  auto engine = std::make_unique<WASAPIEngine>();
+TEST_CASE("AVFEngine Start/Stop Microphone", "[avf]") {
+  auto engine = std::make_unique<AVFEngine>();
   auto devices = engine->GetDevices();
 
   // Find first input device
@@ -101,27 +119,11 @@ TEST_CASE("WASAPIEngine Start/Stop Microphone", "[wasapi]") {
 
   engine->Stop();
 
-  SUCCEED("Start/Stop microphone cycle completed");
+  SUCCEED("Start/Stop cycle completed");
 }
 
-TEST_CASE("WASAPIEngine Start/Stop Loopback", "[wasapi]") {
-  auto engine = std::make_unique<WASAPIEngine>();
-  auto devices = engine->GetDevices();
-
-  // Find first output device for loopback
-  std::string outputDeviceId;
-  for (const auto &d : devices) {
-    if (d.type == AudioEngine::DEVICE_TYPE_OUTPUT) {
-      outputDeviceId = d.id;
-      break;
-    }
-  }
-
-  if (outputDeviceId.empty()) {
-    WARN("No output devices found to test loopback recording");
-    SUCCEED("Skipped - no output devices");
-    return;
-  }
+TEST_CASE("AVFEngine Start/Stop System Audio (SCK)", "[avf]") {
+  auto engine = std::make_unique<AVFEngine>();
 
   bool errorCalled = false;
   auto errorCb = [&](const std::string &error) {
@@ -135,14 +137,15 @@ TEST_CASE("WASAPIEngine Start/Stop Loopback", "[wasapi]") {
       dataReceived = true;
   };
 
-  // Start loopback with deviceType=output and actual device ID
-  engine->Start(AudioEngine::DEVICE_TYPE_OUTPUT, outputDeviceId, dataCb,
-                errorCb);
+  // Start system audio with deviceType=output and deviceId=system
+  engine->Start(AudioEngine::DEVICE_TYPE_OUTPUT,
+                AudioEngine::SYSTEM_AUDIO_DEVICE_ID, dataCb, errorCb);
 
   std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
   engine->Stop();
 
-  SUCCEED("Start/Stop loopback cycle completed");
+  SUCCEED("Start/Stop cycle completed");
 }
+
 #endif

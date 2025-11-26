@@ -1,4 +1,4 @@
-const { AudioRecorder } = require('../dist/index');
+const { AudioRecorder, SYSTEM_AUDIO_DEVICE_ID } = require('../dist/index');
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
@@ -15,70 +15,121 @@ async function main() {
 
   try {
     // Refresh devices list at start
-    const devices = await AudioRecorder.getDevices();
+    const allDevices = AudioRecorder.getDevices();
+    const inputDevices = AudioRecorder.getDevices('input');
+    const outputDevices = AudioRecorder.getDevices('output');
 
     while (true) {
       console.log("\n----------------------------------------");
       console.log("Available Actions:");
-      console.log("1. List Devices");
-      console.log("2. Record from Microphone (Default Device)");
-      console.log("3. Record from Microphone (Select Device)");
-      console.log("4. Record System Audio (Loopback)");
-      console.log("5. Get Device Format");
-      console.log("6. Exit");
+      console.log("1. List All Devices");
+      console.log("2. List Input Devices (Microphones)");
+      console.log("3. List Output Devices (System Audio)");
+      console.log("4. Record from Default Microphone");
+      console.log("5. Record from Selected Microphone");
+      console.log("6. Record System Audio");
+      console.log("7. Get Device Format");
+      console.log("8. Exit");
       console.log("----------------------------------------");
 
-      const answer = await new Promise(resolve => rl.question("Select an option (1-6): ", resolve));
+      const answer = await new Promise(resolve => rl.question("Select an option (1-8): ", resolve));
 
       switch (answer.trim()) {
         case '1':
-          console.log("\nDevices:");
-          devices.forEach((d, i) => {
-            console.log(`${i + 1}. [${d.id}] ${d.name} ${d.isDefault ? '(Default)' : ''}`);
+          console.log("\nAll Devices:");
+          allDevices.forEach((d, i) => {
+            console.log(`${i + 1}. [${d.type}] [${d.id}] ${d.name} ${d.isDefault ? '(Default)' : ''}`);
           });
           break;
         case '2':
-          await recordAudio(undefined, false);
+          console.log("\nInput Devices (Microphones):");
+          inputDevices.forEach((d, i) => {
+            console.log(`${i + 1}. [${d.id}] ${d.name} ${d.isDefault ? '(Default)' : ''}`);
+          });
           break;
         case '3':
-          console.log("\nSelect device number:");
-          devices.forEach((d, i) => {
-            console.log(`${i + 1}. ${d.name}`);
+          console.log("\nOutput Devices (System Audio):");
+          outputDevices.forEach((d, i) => {
+            console.log(`${i + 1}. [${d.id}] ${d.name} ${d.isDefault ? '(Default)' : ''}`);
           });
-          const idxStr = await new Promise(resolve => rl.question("Device #: ", resolve));
-          const idx = parseInt(idxStr) - 1;
-          if (idx >= 0 && idx < devices.length) {
-            await recordAudio(devices[idx].id, false);
-          } else {
-            console.log("Invalid selection.");
-          }
           break;
         case '4':
-          await recordAudio(undefined, true);
+          {
+            const defaultMic = inputDevices.find(d => d.isDefault);
+            if (defaultMic) {
+              await recordAudio('input', defaultMic.id, defaultMic.name);
+            } else if (inputDevices.length > 0) {
+              await recordAudio('input', inputDevices[0].id, inputDevices[0].name);
+            } else {
+              console.log("No input devices found.");
+            }
+          }
           break;
         case '5':
-          console.log("\nSelect device number to get format:");
-          devices.forEach((d, i) => {
+          console.log("\nSelect microphone number:");
+          inputDevices.forEach((d, i) => {
             console.log(`${i + 1}. ${d.name}`);
           });
-          const fmtIdxStr = await new Promise(resolve => rl.question("Device #: ", resolve));
-          const fmtIdx = parseInt(fmtIdxStr) - 1;
-          if (fmtIdx >= 0 && fmtIdx < devices.length) {
-            try {
-              const format = await AudioRecorder.getDeviceFormat(devices[fmtIdx].id);
-              console.log("\nDevice Format:");
-              console.log(`Sample Rate: ${format.sampleRate} Hz`);
-              console.log(`Channels: ${format.channels}`);
-              console.log(`Output Bit Depth: ${format.bitDepth} bits`);
-              console.log(`Native Bit Depth: ${format.rawBitDepth} bits`);
-            } catch (e) {
-              console.error("Failed to get format:", e);
+          {
+            const idxStr = await new Promise(resolve => rl.question("Device #: ", resolve));
+            const idx = parseInt(idxStr) - 1;
+            if (idx >= 0 && idx < inputDevices.length) {
+              await recordAudio('input', inputDevices[idx].id, inputDevices[idx].name);
+            } else {
+              console.log("Invalid selection.");
             }
-          } else {
-            console.log("Invalid selection.");
           }
           break;
         case '6':
+          {
+            if (outputDevices.length > 0) {
+              // On macOS, there's only one output device (system)
+              // On Windows, let user choose
+              if (outputDevices.length === 1) {
+                await recordAudio('output', outputDevices[0].id, outputDevices[0].name);
+              } else {
+                console.log("\nSelect output device number:");
+                outputDevices.forEach((d, i) => {
+                  console.log(`${i + 1}. ${d.name}`);
+                });
+                const idxStr = await new Promise(resolve => rl.question("Device #: ", resolve));
+                const idx = parseInt(idxStr) - 1;
+                if (idx >= 0 && idx < outputDevices.length) {
+                  await recordAudio('output', outputDevices[idx].id, outputDevices[idx].name);
+                } else {
+                  console.log("Invalid selection.");
+                }
+              }
+            } else {
+              console.log("No output devices found.");
+            }
+          }
+          break;
+        case '7':
+          console.log("\nSelect device number to get format:");
+          allDevices.forEach((d, i) => {
+            console.log(`${i + 1}. [${d.type}] ${d.name}`);
+          });
+          {
+            const fmtIdxStr = await new Promise(resolve => rl.question("Device #: ", resolve));
+            const fmtIdx = parseInt(fmtIdxStr) - 1;
+            if (fmtIdx >= 0 && fmtIdx < allDevices.length) {
+              try {
+                const format = AudioRecorder.getDeviceFormat(allDevices[fmtIdx].id);
+                console.log("\nDevice Format:");
+                console.log(`Sample Rate: ${format.sampleRate} Hz`);
+                console.log(`Channels: ${format.channels}`);
+                console.log(`Output Bit Depth: ${format.bitDepth} bits`);
+                console.log(`Native Bit Depth: ${format.rawBitDepth} bits`);
+              } catch (e) {
+                console.error("Failed to get format:", e);
+              }
+            } else {
+              console.log("Invalid selection.");
+            }
+          }
+          break;
+        case '8':
           rl.close();
           return;
         default:
@@ -91,12 +142,12 @@ async function main() {
   }
 }
 
-async function recordAudio(deviceId, isLoopback) {
-  const typeStr = isLoopback ? "System Audio" : "Microphone";
-  const filename = isLoopback ? "loopback_test.raw" : "mic_test.raw";
+async function recordAudio(deviceType, deviceId, deviceName) {
+  const typeStr = deviceType === 'output' ? "System Audio" : "Microphone";
+  const filename = deviceType === 'output' ? "loopback_test.raw" : "mic_test.raw";
   const filePath = path.join(__dirname, filename);
 
-  console.log(`\nStarting recording (${typeStr})...`);
+  console.log(`\nStarting recording (${typeStr}: ${deviceName})...`);
   console.log(`Duration: ${RECORD_DURATION / 1000} seconds`);
   console.log(`Output: ${filePath}`);
 
@@ -111,8 +162,6 @@ async function recordAudio(deviceId, isLoopback) {
 
     // Simple VU Meter
     const rms = calculateRMS(data);
-    // Scale RMS (0-32768) to 0-50 bars. Log scale is better visually.
-    // Simple log-ish mapping
     const val = Math.min(1, rms / 10000);
     const numBars = Math.floor(val * 50);
     const bars = '#'.repeat(numBars);
@@ -127,14 +176,15 @@ async function recordAudio(deviceId, isLoopback) {
   try {
     let format = { sampleRate: 48000, channels: 2 };
     try {
-      format = await AudioRecorder.getDeviceFormat(deviceId || "");
+      format = AudioRecorder.getDeviceFormat(deviceId);
     } catch (e) {
       console.warn("Warning: Could not get device format for display.");
     }
 
+    // Use new API with deviceType and deviceId
     await recorder.start({
-      deviceId: deviceId,
-      type: isLoopback ? 'system' : 'microphone'
+      deviceType: deviceType,
+      deviceId: deviceId
     });
 
     await new Promise(resolve => setTimeout(resolve, RECORD_DURATION));

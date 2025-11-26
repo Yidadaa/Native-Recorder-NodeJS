@@ -29,9 +29,10 @@ if(WIN32)
     )
     add_definitions(-DNAPI_CPP_EXCEPTIONS -DWIN32_LEAN_AND_MEAN)
 elseif(APPLE)
+    set(CMAKE_OBJCXX_FLAGS "${CMAKE_OBJCXX_FLAGS} -fobjc-arc")
     list(APPEND ENGINE_SOURCES 
-        # native/mac/AVFEngine.mm
-        # native/mac/SCKEngine.mm
+        native/mac/AVFEngine.mm
+        native/mac/SCKAudioCapture.mm
     )
     add_definitions(-DNAPI_CPP_EXCEPTIONS)
 endif()
@@ -46,6 +47,10 @@ set(SOURCE_FILES
 add_library(${PROJECT_NAME} SHARED ${SOURCE_FILES})
 set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "" SUFFIX ".node")
 
+if(APPLE)
+    target_compile_options(${PROJECT_NAME} PRIVATE -fobjc-arc)
+endif()
+
 # Link libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_JS_LIB})
 
@@ -54,7 +59,11 @@ if(WIN32)
 elseif(APPLE)
     find_library(AVFOUNDATION_FRAMEWORK AVFoundation)
     find_library(COREAUDIO_FRAMEWORK CoreAudio)
-    target_link_libraries(${PROJECT_NAME} PRIVATE ${AVFOUNDATION_FRAMEWORK} ${COREAUDIO_FRAMEWORK})
+    find_library(COREMEDIA_FRAMEWORK CoreMedia)
+    find_library(SCREENCAPTUREKIT_FRAMEWORK ScreenCaptureKit)
+    find_library(AUDIOTOOLBOX_FRAMEWORK AudioToolbox)
+    find_library(FOUNDATION_FRAMEWORK Foundation)
+    target_link_libraries(${PROJECT_NAME} PRIVATE ${AVFOUNDATION_FRAMEWORK} ${COREAUDIO_FRAMEWORK} ${COREMEDIA_FRAMEWORK} ${SCREENCAPTUREKIT_FRAMEWORK} ${AUDIOTOOLBOX_FRAMEWORK} ${FOUNDATION_FRAMEWORK})
 endif()
 
 # --- Testing (Catch2) ---
@@ -71,19 +80,27 @@ if(BUILD_TESTS)
 
     # Define test sources (exclude main.cpp which has N-API exports)
     set(TEST_SOURCES
-        test/native/test_wasapi.cpp
         test/native/test_factory.cpp
         ${ENGINE_SOURCES}
     )
 
+    if(WIN32)
+        list(APPEND TEST_SOURCES test/native/test_wasapi.cpp)
+    elseif(APPLE)
+        list(APPEND TEST_SOURCES test/native/test_avf.cpp)
+    endif()
+
     add_executable(NativeTests ${TEST_SOURCES})
+    if(APPLE)
+        target_compile_options(NativeTests PRIVATE -fobjc-arc)
+    endif()
     target_link_libraries(NativeTests PRIVATE Catch2::Catch2WithMain)
     
     # Link platform libs to tests as well
     if(WIN32)
         target_link_libraries(NativeTests PRIVATE Ole32)
     elseif(APPLE)
-        target_link_libraries(NativeTests PRIVATE ${AVFOUNDATION_FRAMEWORK} ${COREAUDIO_FRAMEWORK})
+        target_link_libraries(NativeTests PRIVATE ${AVFOUNDATION_FRAMEWORK} ${COREAUDIO_FRAMEWORK} ${COREMEDIA_FRAMEWORK} ${SCREENCAPTUREKIT_FRAMEWORK} ${AUDIOTOOLBOX_FRAMEWORK} ${FOUNDATION_FRAMEWORK})
     endif()
 
     enable_testing()

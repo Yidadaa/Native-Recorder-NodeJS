@@ -6,8 +6,6 @@
 #include <iostream>
 #include <vector>
 
-// Macro for error checking removed
-
 const CLSID CLSID_MMDeviceEnumerator = __uuidof(MMDeviceEnumerator);
 const IID IID_IMMDeviceEnumerator = __uuidof(IMMDeviceEnumerator);
 const IID IID_IAudioClient = __uuidof(IAudioClient);
@@ -19,7 +17,6 @@ WASAPIEngine::WASAPIEngine() : isRecording(false) {
                                 IID_IMMDeviceEnumerator, (void **)&enumerator);
 
   if (FAILED(hr)) {
-    // Handle error
     std::cerr << "Failed to create IMMDeviceEnumerator" << std::endl;
   }
 }
@@ -30,8 +27,9 @@ WASAPIEngine::~WASAPIEngine() {
   CoUninitialize();
 }
 
-void WASAPIEngine::Start(const std::string &deviceId, bool isLoopback,
-                         DataCallback dataCb, ErrorCallback errorCb) {
+void WASAPIEngine::Start(const std::string &deviceType,
+                         const std::string &deviceId, DataCallback dataCb,
+                         ErrorCallback errorCb) {
   if (isRecording) {
     return;
   }
@@ -39,7 +37,7 @@ void WASAPIEngine::Start(const std::string &deviceId, bool isLoopback,
   this->dataCallback = dataCb;
   this->errorCallback = errorCb;
   this->currentDeviceId = deviceId;
-  this->currentIsLoopback = isLoopback;
+  this->currentDeviceType = deviceType;
   this->isRecording = true;
   this->recordingThread = std::thread(&WASAPIEngine::RecordingThread, this);
 }
@@ -58,53 +56,104 @@ std::vector<AudioDevice> WASAPIEngine::GetDevices() {
   if (!enumerator)
     return devices;
 
-  // Get default device ID
-  std::string defaultDeviceId;
-  ComPtr<IMMDevice> pDefaultDevice;
-  HRESULT hr =
-      enumerator->GetDefaultAudioEndpoint(eCapture, eConsole, &pDefaultDevice);
+  // Get default input device ID
+  std::string defaultInputId;
+  ComPtr<IMMDevice> pDefaultInputDevice;
+  HRESULT hr = enumerator->GetDefaultAudioEndpoint(eCapture, eConsole,
+                                                   &pDefaultInputDevice);
   if (SUCCEEDED(hr)) {
     LPWSTR pwszID = NULL;
-    hr = pDefaultDevice->GetId(&pwszID);
+    hr = pDefaultInputDevice->GetId(&pwszID);
     if (SUCCEEDED(hr)) {
       std::wstring wsId(pwszID);
-      defaultDeviceId = std::string(wsId.begin(), wsId.end());
+      defaultInputId = std::string(wsId.begin(), wsId.end());
       CoTaskMemFree(pwszID);
     }
   }
 
-  ComPtr<IMMDeviceCollection> pCollection;
-  hr = enumerator->EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE,
-                                      &pCollection);
-  if (FAILED(hr))
-    return devices;
-
-  UINT count;
-  pCollection->GetCount(&count);
-
-  for (UINT i = 0; i < count; i++) {
-    ComPtr<IMMDevice> pEndpoint;
-    hr = pCollection->Item(i, &pEndpoint);
-    if (FAILED(hr))
-      continue;
-
+  // Get default output device ID
+  std::string defaultOutputId;
+  ComPtr<IMMDevice> pDefaultOutputDevice;
+  hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole,
+                                           &pDefaultOutputDevice);
+  if (SUCCEEDED(hr)) {
     LPWSTR pwszID = NULL;
-    hr = pEndpoint->GetId(&pwszID);
-    if (FAILED(hr))
-      continue;
+    hr = pDefaultOutputDevice->GetId(&pwszID);
+    if (SUCCEEDED(hr)) {
+      std::wstring wsId(pwszID);
+      defaultOutputId = std::string(wsId.begin(), wsId.end());
+      CoTaskMemFree(pwszID);
+    }
+  }
 
-    std::wstring wsId(pwszID);
-    std::string id(
-        wsId.begin(),
-        wsId.end()); // Simple conversion, should use WideCharToMultiByte
-    CoTaskMemFree(pwszID);
+  // Enumerate input devices (microphones)
+  ComPtr<IMMDeviceCollection> pInputCollection;
+  hr = enumerator->EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE,
+                                      &pInputCollection);
+  if (SUCCEEDED(hr)) {
+    UINT count;
+    pInputCollection->GetCount(&count);
 
-    std::string name = GetDeviceName(pEndpoint.Get());
+    for (UINT i = 0; i < count; i++) {
+      ComPtr<IMMDevice> pEndpoint;
+      hr = pInputCollection->Item(i, &pEndpoint);
+      if (FAILED(hr))
+        continue;
 
-    // Check if default
-    bool isDefault = (id == defaultDeviceId);
+      LPWSTR pwszID = NULL;
+      hr = pEndpoint->GetId(&pwszID);
+      if (FAILED(hr))
+        continue;
 
-    devices.push_back({id, name, isDefault});
+      std::wstring wsId(pwszID);
+      std::string id(wsId.begin(), wsId.end());
+      CoTaskMemFree(pwszID);
+
+      std::string name = GetDeviceName(pEndpoint.Get());
+      bool isDefault = (id == defaultInputId);
+
+      AudioDevice device;
+      device.id = id;
+      device.name = name;
+      device.type = AudioEngine::DEVICE_TYPE_INPUT;
+      device.isDefault = isDefault;
+      devices.push_back(device);
+    }
+  }
+
+  // Enumerate output devices (speakers for loopback)
+  ComPtr<IMMDeviceCollection> pOutputCollection;
+  hr = enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE,
+                                      &pOutputCollection);
+  if (SUCCEEDED(hr)) {
+    UINT count;
+    pOutputCollection->GetCount(&count);
+
+    for (UINT i = 0; i < count; i++) {
+      ComPtr<IMMDevice> pEndpoint;
+      hr = pOutputCollection->Item(i, &pEndpoint);
+      if (FAILED(hr))
+        continue;
+
+      LPWSTR pwszID = NULL;
+      hr = pEndpoint->GetId(&pwszID);
+      if (FAILED(hr))
+        continue;
+
+      std::wstring wsId(pwszID);
+      std::string id(wsId.begin(), wsId.end());
+      CoTaskMemFree(pwszID);
+
+      std::string name = GetDeviceName(pEndpoint.Get());
+      bool isDefault = (id == defaultOutputId);
+
+      AudioDevice device;
+      device.id = id;
+      device.name = name;
+      device.type = AudioEngine::DEVICE_TYPE_OUTPUT;
+      device.isDefault = isDefault;
+      devices.push_back(device);
+    }
   }
 
   return devices;
@@ -123,13 +172,13 @@ std::string WASAPIEngine::GetDeviceName(IMMDevice *device) {
     return "Unknown Device";
 
   std::wstring wsName(varName.pwszVal);
-  std::string name(wsName.begin(), wsName.end()); // Simple conversion
+  std::string name(wsName.begin(), wsName.end());
   PropVariantClear(&varName);
   return name;
 }
 
 AudioFormat WASAPIEngine::GetDeviceFormat(const std::string &deviceId) {
-  AudioFormat format = {0, 0, 0};
+  AudioFormat format = {0, 0, 0, 0};
   HRESULT hr;
   ComPtr<IMMDevice> pDevice;
   ComPtr<IAudioClient> pAudioClient;
@@ -138,12 +187,8 @@ AudioFormat WASAPIEngine::GetDeviceFormat(const std::string &deviceId) {
   if (!enumerator)
     return format;
 
-  if (deviceId.empty()) {
-    hr = enumerator->GetDefaultAudioEndpoint(eCapture, eConsole, &pDevice);
-  } else {
-    std::wstring wsId(deviceId.begin(), deviceId.end());
-    hr = enumerator->GetDevice(wsId.c_str(), &pDevice);
-  }
+  std::wstring wsId(deviceId.begin(), deviceId.end());
+  hr = enumerator->GetDevice(wsId.c_str(), &pDevice);
 
   if (FAILED(hr))
     return format;
@@ -189,8 +234,10 @@ void WASAPIEngine::RecordingThread() {
   DWORD flags;
   HANDLE hEvent = NULL;
 
+  // Determine if this is output (loopback) or input based on deviceType
+  bool isLoopback = (currentDeviceType == AudioEngine::DEVICE_TYPE_OUTPUT);
+
   do {
-    // Create a new enumerator for this thread
     hr = CoCreateInstance(CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL,
                           IID_IMMDeviceEnumerator, (void **)&pEnumerator);
 
@@ -201,22 +248,16 @@ void WASAPIEngine::RecordingThread() {
       break;
     }
 
-    // 1. Get Device
-    if (currentDeviceId.empty()) {
-      // If loopback, we usually want the default render device
-      EDataFlow dataFlow = currentIsLoopback ? eRender : eCapture;
-      hr = pEnumerator->GetDefaultAudioEndpoint(dataFlow, eConsole, &pDevice);
-    } else {
-      std::wstring wsId(currentDeviceId.begin(), currentDeviceId.end());
-      hr = pEnumerator->GetDevice(wsId.c_str(), &pDevice);
-    }
+    // Get device by ID
+    std::wstring wsId(currentDeviceId.begin(), currentDeviceId.end());
+    hr = pEnumerator->GetDevice(wsId.c_str(), &pDevice);
+
     if (FAILED(hr)) {
       if (errorCallback)
-        errorCallback("Failed to get audio device");
+        errorCallback("Failed to get audio device: " + currentDeviceId);
       break;
     }
 
-    // 2. Activate Audio Client
     hr = pDevice->Activate(IID_IAudioClient, CLSCTX_ALL, NULL,
                            (void **)&pAudioClient);
     if (FAILED(hr)) {
@@ -225,7 +266,6 @@ void WASAPIEngine::RecordingThread() {
       break;
     }
 
-    // 3. Get Mix Format
     hr = pAudioClient->GetMixFormat(&pwfx);
     if (FAILED(hr)) {
       if (errorCallback)
@@ -233,9 +273,9 @@ void WASAPIEngine::RecordingThread() {
       break;
     }
 
-    // 4. Initialize Audio Client
+    // Initialize Audio Client
     DWORD streamFlags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
-    if (currentIsLoopback) {
+    if (isLoopback) {
       streamFlags |= AUDCLNT_STREAMFLAGS_LOOPBACK;
     }
 
@@ -248,7 +288,6 @@ void WASAPIEngine::RecordingThread() {
       break;
     }
 
-    // 5. Set Event Handle
     hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
     hr = pAudioClient->SetEventHandle(hEvent);
     if (FAILED(hr)) {
@@ -257,7 +296,6 @@ void WASAPIEngine::RecordingThread() {
       break;
     }
 
-    // 6. Get Capture Client
     hr = pAudioClient->GetService(IID_IAudioCaptureClient,
                                   (void **)&pCaptureClient);
     if (FAILED(hr)) {
@@ -266,7 +304,6 @@ void WASAPIEngine::RecordingThread() {
       break;
     }
 
-    // 7. Start Recording
     hr = pAudioClient->Start();
     if (FAILED(hr)) {
       if (errorCallback)
@@ -277,7 +314,6 @@ void WASAPIEngine::RecordingThread() {
     while (isRecording) {
       DWORD retval = WaitForSingleObject(hEvent, 2000);
       if (retval != WAIT_OBJECT_0) {
-        // Timeout or error
         continue;
       }
 
@@ -299,7 +335,7 @@ void WASAPIEngine::RecordingThread() {
         }
 
         if (numFramesAvailable > 0) {
-          // 1. Convert to Float32
+          // Convert to Float32
           std::vector<float> inputFloats;
           size_t numSamples = numFramesAvailable * pwfx->nChannels;
           inputFloats.resize(numSamples);
@@ -322,7 +358,6 @@ void WASAPIEngine::RecordingThread() {
               float *floatData = (float *)pData;
               std::copy(floatData, floatData + numSamples, inputFloats.begin());
             } else {
-              // Assume PCM (16-bit usually)
               if (pwfx->wBitsPerSample == 16) {
                 int16_t *pcmData = (int16_t *)pData;
                 for (size_t i = 0; i < numSamples; i++) {
@@ -331,7 +366,6 @@ void WASAPIEngine::RecordingThread() {
               } else if (pwfx->wBitsPerSample == 24) {
                 uint8_t *ptr = (uint8_t *)pData;
                 for (size_t i = 0; i < numSamples; i++) {
-                  // 24-bit is 3 bytes. Shift to high 24 bits of 32-bit int.
                   int32_t sample =
                       (ptr[0] << 8) | (ptr[1] << 16) | (ptr[2] << 24);
                   inputFloats[i] = sample / 2147483648.0f;
@@ -343,21 +377,17 @@ void WASAPIEngine::RecordingThread() {
                   inputFloats[i] = ptr[i] / 2147483648.0f;
                 }
               } else {
-                // Fallback for other formats: treat as silence or noise?
-                // Just copy as if 8 bit? No, unsafe.
-                // Let's fill silence to avoid noise blast
                 std::fill(inputFloats.begin(), inputFloats.end(), 0.0f);
               }
             }
           }
 
-          // 2. Convert to Int16 and Callback (No Resampling)
+          // Convert to Int16 and Callback
           if (!inputFloats.empty()) {
             std::vector<int16_t> pcmData;
             pcmData.reserve(inputFloats.size());
 
             for (float sample : inputFloats) {
-              // Clip
               if (sample > 1.0f)
                 sample = 1.0f;
               if (sample < -1.0f)
@@ -386,7 +416,6 @@ void WASAPIEngine::RecordingThread() {
           break;
         }
       }
-      // Check if we broke out of inner loop due to error
       if (FAILED(hr))
         break;
     }

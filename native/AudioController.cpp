@@ -1,5 +1,4 @@
 #include "AudioController.h"
-#include <iostream>
 
 // Forward declaration of platform-specific factory
 std::unique_ptr<AudioEngine> CreatePlatformAudioEngine();
@@ -47,28 +46,42 @@ Napi::Value AudioController::Start(const Napi::CallbackInfo &info) {
   }
 
   Napi::Object config = info[0].As<Napi::Object>();
-  std::string deviceId = "";
-  bool isLoopback = false;
 
+  // Parse deviceType (required)
+  std::string deviceType = AudioEngine::DEVICE_TYPE_INPUT; // default to input
+  if (config.Has("deviceType")) {
+    Napi::Value typeVal = config.Get("deviceType");
+    if (typeVal.IsString()) {
+      deviceType = typeVal.As<Napi::String>().Utf8Value();
+    }
+  }
+
+  // Validate deviceType
+  if (deviceType != AudioEngine::DEVICE_TYPE_INPUT &&
+      deviceType != AudioEngine::DEVICE_TYPE_OUTPUT) {
+    Napi::TypeError::New(env, "deviceType must be 'input' or 'output'")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  // Parse deviceId (required)
+  std::string deviceId = "";
   if (config.Has("deviceId")) {
     Napi::Value idVal = config.Get("deviceId");
     if (idVal.IsString()) {
       deviceId = idVal.As<Napi::String>().Utf8Value();
     }
   }
-  if (config.Has("type")) {
-    Napi::Value typeVal = config.Get("type");
-    if (typeVal.IsString()) {
-      std::string type = typeVal.As<Napi::String>().Utf8Value();
-      if (type == "system") {
-        isLoopback = true;
-      }
-    }
+
+  if (deviceId.empty()) {
+    Napi::TypeError::New(env, "deviceId is required")
+        .ThrowAsJavaScriptException();
+    return env.Null();
   }
 
-  Napi::Function callback =
-      info[1].As<Napi::Function>(); // Create a ThreadSafeFunction to call back
-                                    // into JS from the audio thread
+  Napi::Function callback = info[1].As<Napi::Function>();
+
+  // Create a ThreadSafeFunction to call back into JS from the audio thread
   this->tsfn = std::make_shared<Napi::ThreadSafeFunction>(
       Napi::ThreadSafeFunction::New(env, callback, "AudioDataCallback", 0, 1));
 
@@ -107,7 +120,7 @@ Napi::Value AudioController::Start(const Napi::CallbackInfo &info) {
   };
 
   try {
-    this->engine->Start(deviceId, isLoopback, dataCallback, errorCallback);
+    this->engine->Start(deviceType, deviceId, dataCallback, errorCallback);
   } catch (const std::exception &e) {
     Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
   }
@@ -129,9 +142,6 @@ Napi::Value AudioController::Stop(const Napi::CallbackInfo &info) {
 Napi::Value AudioController::GetDevices(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 
-  // We need a temporary engine instance to list devices if one doesn't exist,
-  // or we can make GetDevices static in AudioEngine if possible.
-  // For simplicity, let's create a temporary engine.
   auto tempEngine = CreatePlatformAudioEngine();
   std::vector<AudioDevice> devices = tempEngine->GetDevices();
 
@@ -140,6 +150,7 @@ Napi::Value AudioController::GetDevices(const Napi::CallbackInfo &info) {
     Napi::Object deviceObj = Napi::Object::New(env);
     deviceObj.Set("id", devices[i].id);
     deviceObj.Set("name", devices[i].name);
+    deviceObj.Set("type", devices[i].type);
     deviceObj.Set("isDefault", devices[i].isDefault);
     result[i] = deviceObj;
   }

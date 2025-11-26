@@ -17,8 +17,8 @@ public:
   WASAPIEngine();
   ~WASAPIEngine();
 
-  void Start(const std::string &deviceId, bool isLoopback, DataCallback dataCb,
-             ErrorCallback errorCb) override;
+  void Start(const std::string &deviceType, const std::string &deviceId,
+             DataCallback dataCb, ErrorCallback errorCb) override;
   void Stop() override;
   std::vector<AudioDevice> GetDevices() override;
   AudioFormat GetDeviceFormat(const std::string &deviceId) override;
@@ -34,7 +34,7 @@ private:
   DataCallback dataCallback;
   ErrorCallback errorCallback;
   std::string currentDeviceId;
-  bool currentIsLoopback;
+  std::string currentDeviceType;
 };
 
 #endif
