@@ -42,15 +42,26 @@ jobs:
       - name: Install dependencies
         run: npm install --ignore-scripts
 
-      # Install cmake-js globally to ensure proper node-dev files
-      - name: Setup cmake-js
-        run: npm install -g cmake-js
+      - name: Get Node.js version
+        id: node-version
+        shell: bash
+        run: echo "version=$(node -v | sed 's/v//')" >> $GITHUB_OUTPUT
+
+      - name: Download node.lib (Windows)
+        if: matrix.platform == 'win32'
+        shell: bash
+        run: |
+          NODE_VERSION=${{ steps.node-version.outputs.version }}
+          ARCH=${{ matrix.arch }}
+          mkdir -p build/Release
+          curl -Lo build/node.lib "https://nodejs.org/dist/v${NODE_VERSION}/win-${ARCH}/node.lib"
+          echo "Downloaded node.lib for Node.js v${NODE_VERSION} (${ARCH})"
 
       - name: Build native module
         shell: bash
         run: |
           if [ "${{ matrix.platform }}" = "win32" ]; then
-            npx cmake-js compile --CDCMAKE_BUILD_TYPE=Release
+            npx cmake-js compile --CDCMAKE_JS_LIB="$(pwd)/build/node.lib"
           else
             npm run build:native
           fi
