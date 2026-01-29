@@ -93,7 +93,11 @@ jobs:
             
             # Build with cmake-js for Electron
             if [ "${{ matrix.platform }}" = "win32" ]; then
-              npx cmake-js compile --runtime=electron --runtime-version=$ELECTRON_VERSION --arch=${{ matrix.arch }} --CDCMAKE_JS_LIB="$(pwd)/build/node.lib"
+              # Download Electron's node.lib for this version
+              ARCH=${{ matrix.arch }}
+              curl -Lo build/electron-node.lib "https://electronjs.org/headers/v${ELECTRON_VERSION}/win-${ARCH}/node.lib"
+              echo "Downloaded Electron node.lib for v${ELECTRON_VERSION} (${ARCH})"
+              npx cmake-js compile --runtime=electron --runtime-version=$ELECTRON_VERSION --arch=${{ matrix.arch }} --CDCMAKE_JS_LIB="$(pwd)/build/electron-node.lib"
             else
               npx cmake-js compile --runtime=electron --runtime-version=$ELECTRON_VERSION --arch=${{ matrix.arch }}
             fi
