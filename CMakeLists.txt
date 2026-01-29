@@ -44,6 +44,12 @@ set(SOURCE_FILES
     ${ENGINE_SOURCES}
 )
 
+# Include delay load hook for Windows (required for Electron compatibility)
+if(WIN32 AND CMAKE_JS_SRC)
+    list(APPEND SOURCE_FILES ${CMAKE_JS_SRC})
+endif()
+
+
 # --- Main Target (Node Addon) ---
 add_library(${PROJECT_NAME} SHARED ${SOURCE_FILES})
 set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "" SUFFIX ".node")
