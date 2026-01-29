@@ -5,6 +5,10 @@ on:
     tags:
       - "v*"
 
+env:
+  # Electron versions to build prebuilds for (major versions 29-40)
+  ELECTRON_VERSIONS: "29.0.0 30.0.0 31.0.0 32.0.0 33.0.0 34.0.0 35.0.0 36.0.0 37.0.0 38.0.0 39.0.0 40.0.0"
+
 jobs:
   build:
     strategy:
@@ -74,6 +78,34 @@ jobs:
           else
             cp build/Release/NativeAudioSDK.node prebuilds/${{ matrix.platform }}-${{ matrix.arch }}/
           fi
+
+      - name: Build for Electron
+        shell: bash
+        run: |
+          for ELECTRON_VERSION in $ELECTRON_VERSIONS; do
+            echo "Building for Electron $ELECTRON_VERSION..."
+            
+            # Clean previous build
+            rm -rf build/Release/*.node 2>/dev/null || true
+            
+            # Get Electron ABI for this version
+            ELECTRON_MAJOR=$(echo $ELECTRON_VERSION | cut -d. -f1)
+            
+            # Build with cmake-js for Electron
+            if [ "${{ matrix.platform }}" = "win32" ]; then
+              npx cmake-js compile --runtime=electron --runtime-version=$ELECTRON_VERSION --arch=${{ matrix.arch }} --CDCMAKE_JS_LIB="$(pwd)/build/node.lib"
+            else
+              npx cmake-js compile --runtime=electron --runtime-version=$ELECTRON_VERSION --arch=${{ matrix.arch }}
+            fi
+            
+            # Create Electron-specific prebuild directory
+            mkdir -p prebuilds/${{ matrix.platform }}-${{ matrix.arch }}/electron-v$ELECTRON_MAJOR
+            cp build/Release/NativeAudioSDK.node prebuilds/${{ matrix.platform }}-${{ matrix.arch }}/electron-v$ELECTRON_MAJOR/
+            
+            echo "Created prebuild for Electron $ELECTRON_VERSION"
+          done
+        env:
+          npm_config_arch: ${{ matrix.arch }}
 
       - name: Upload prebuild artifact
         uses: actions/upload-artifact@v4

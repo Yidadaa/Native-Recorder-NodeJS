@@ -41,6 +41,20 @@ npm install native-recorder-nodejs
 
 Prebuilt binaries are available for most platforms. If a prebuild is not available, the package will compile from source (requires CMake and a C++ compiler).
 
+### Electron Support
+
+This package includes prebuilt binaries for Electron 29-40. In most cases, it will work out of the box. If you encounter issues:
+
+```bash
+# Option 1: Use electron-rebuild (recommended)
+npx electron-rebuild
+
+# Option 2: Rebuild using cmake-js with Electron runtime
+npx cmake-js compile --runtime=electron --runtime-version=YOUR_ELECTRON_VERSION --arch=x64
+```
+
+**Note**: Make sure to rebuild native modules after updating Electron version.
+
 ## Quick Start
 
 ```typescript

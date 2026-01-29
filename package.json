@@ -11,11 +11,14 @@
     "build:native:debug": "cmake-js compile --debug",
     "build:tests": "cmake -S . -B build -DBUILD_TESTS=ON && cmake --build build --config Release --target NativeTests",
     "prebuild": "prebuild --backend cmake-js -r napi --strip",
+    "prebuild:electron": "prebuild --backend cmake-js -r electron -t 29.0.0 -t 30.0.0 -t 31.0.0 -t 32.0.0 -t 33.0.0 -t 34.0.0 -t 35.0.0 -t 36.0.0 -t 37.0.0 -t 38.0.0 -t 39.0.0 -t 40.0.0 --strip",
+    "prebuild:all": "npm run prebuild && npm run prebuild:electron",
     "prebuild:upload": "prebuild --upload-all ${GITHUB_TOKEN}",
     "test": "jest",
     "test:native": "npm run build:tests && cd build && ctest -C Release --output-on-failure",
     "test:cli": "node ./test/cli_test.js",
     "clean": "rimraf dist build prebuilds",
+    "install": "prebuild-install || npm run build:native",
     "prepublishOnly": "npm run build:ts",
     "release": "npm version patch && git push && git push --tags",
     "release:minor": "npm version minor && git push && git push --tags",
@@ -57,7 +60,8 @@
     ]
   },
   "dependencies": {
-    "node-addon-api": "^7.0.0"
+    "node-addon-api": "^7.0.0",
+    "prebuild-install": "^7.1.2"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
