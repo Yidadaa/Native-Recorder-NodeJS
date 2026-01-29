@@ -159,7 +159,7 @@ jobs:
       - name: Build TypeScript
         run: npm run build:ts
 
-      - name: Test loading native module
+      - name: Test loading native module (Node.js)
         run: |
           node -e "
             const m = require('./dist/index.js');
@@ -167,6 +167,49 @@ jobs:
             console.log('AudioRecorder class exists:', typeof m.AudioRecorder === 'function');
             console.log('getDevices method exists:', typeof m.AudioRecorder.getDevices === 'function');
           "
+
+      - name: Test loading native module (Electron)
+        shell: bash
+        run: |
+          # Get the latest supported Electron version from ELECTRON_VERSIONS
+          LATEST_ELECTRON=$(echo $ELECTRON_VERSIONS | tr ' ' '\n' | tail -1)
+          ELECTRON_MAJOR=$(echo $LATEST_ELECTRON | cut -d. -f1)
+          echo "Testing with Electron v$LATEST_ELECTRON (major: $ELECTRON_MAJOR)"
+
+          # Install the specific Electron version for testing
+          npm install electron@$LATEST_ELECTRON --save-dev
+
+          # Copy the Electron-specific prebuild for testing
+          PREBUILD_PATH="prebuilds/${{ matrix.platform }}-${{ matrix.arch }}/electron-v$ELECTRON_MAJOR/NativeAudioSDK.node"
+          if [ -f "$PREBUILD_PATH" ]; then
+            cp "$PREBUILD_PATH" ./test-electron.node
+          else
+            echo "Warning: Electron v$ELECTRON_MAJOR prebuild not found, skipping Electron test"
+            exit 0
+          fi
+
+          # Create test script
+          cat > test-electron.js << 'EOF'
+          const { app } = require('electron');
+          app.whenReady().then(() => {
+            try {
+              console.log('Testing Electron prebuild...');
+              const binding = require('./test-electron.node');
+              console.log('SUCCESS:', Object.keys(binding));
+              process.exit(0);
+            } catch (e) {
+              console.error('ERROR:', e);
+              process.exit(1);
+            }
+          });
+          setTimeout(() => {
+            console.error('ERROR: Timeout waiting for app ready');
+            process.exit(1);
+          }, 30000);
+          EOF
+
+          # Run Electron test
+          npx electron test-electron.js
 
   publish:
     needs: [build, test]
